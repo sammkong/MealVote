@@ -1,0 +1,98 @@
+version: '3.9'
+
+services:
+  nginx-proxy-manager:        # Reverse Proxy + SSL 관리 NPM
+    image: jc21/nginx-proxy-manager:latest
+    container_name: nginx-proxy-manager
+    ports:
+      - "80:80"               # HTTP
+      - "443:443"             # HTTPS
+      - "8181:81"             # NPM 관리자 페이지
+    volumes:
+      - ./npm-data:/data      # NPM 설정 데이터
+      - ./npm-letsencrypt:/etc/letsencrypt   # SSL 인증서 저장
+    depends_on:
+      - frontend
+      - node-auth
+      - php-api
+    networks: [mealvote_net]
+    restart: unless-stopped
+
+  frontend:                    # 프론트엔드 서비스
+    build: ./frontend
+    image: ${DOCKER_USER}/mealvote-frontend:${TAG}
+    container_name: frontend
+    networks: [mealvote_net]
+
+  node-auth:                   # Node.js 기반 인증/세션 서비스
+    build: ./node-auth
+    image: ${DOCKER_USER}/mealvote-node:${TAG}
+    container_name: node-auth
+    environment:
+      SESSION_SECRET: ${SESSION_SECRET}
+      REDIS_URL: redis://redis:6379  # 세션 저장용 Redis
+      DB_HOST: mysql
+      DB_USER: mv
+      DB_PASS: mvpass
+      DB_NAME: mealvote
+    depends_on:
+      - redis                  # 세션 저장소
+      - mysql                  # 사용자 인증 DB
+    networks: [mealvote_net]
+
+  php-api:                     # PHP 기반 API 서버(백엔드)
+    build: ./php-api
+    volumes:
+      - ./php-api:/var/www/html   # 코드 마운트
+    image: ${DOCKER_USER}/mealvote-php:${TAG}
+    container_name: php-api
+    environment:
+      DB_HOST: mysql
+      DB_USER: mv
+      DB_PASS: mvpass
+      DB_NAME: mealvote
+    depends_on:
+      - redis                  # 캐시/세션 사용 가능
+      - mysql                  # API용 데이터베이스
+    networks: [mealvote_net]
+
+  redis:                       # Redis 캐시/세션 저장소
+    image: redis:7-alpine
+    container_name: redis
+    networks: [mealvote_net]
+
+  mysql:                       # MySQL 데이터베이스
+    image: mysql:8.0
+    container_name: mysql
+    environment:
+      TZ: Asia/Seoul
+      MYSQL_DATABASE: mealvote
+      MYSQL_USER: mv
+      MYSQL_PASSWORD: mvpass
+      MYSQL_ROOT_PASSWORD: secret
+    volumes:
+      - dbdata:/var/lib/mysql                         # DB 데이터 저장
+      - ./deploy/init.sql:/docker-entrypoint-initdb.d/init.sql:ro  # 초기 스키마 적용
+    networks: [mealvote_net]
+
+  phpmyadmin:                  # MySQL 관리 웹 UI
+    image: phpmyadmin:latest
+    container_name: phpmyadmin
+    environment:
+      PMA_HOST: mysql
+      PMA_USER: mv
+      PMA_PASSWORD: mvpass
+    ports:
+      - "8081:80"              # phpMyAdmin 접속 포트
+    depends_on:
+      - mysql
+    networks: [mealvote_net]
+
+volumes:
+  dbdata:                      # MySQL 데이터
+  npm-data:                    # NPM 설정 데이터
+  npm-letsencrypt:             # SSL 인증서 저장소
+
+networks:
+  mealvote_net:
+    driver: bridge             # 컨테이너 내부 통신용 Bridge 네트워크

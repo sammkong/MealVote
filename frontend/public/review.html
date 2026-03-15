@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>오늘의 후기 - MealVote</title>
+  
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; max-width: 600px; margin: 40px auto; }
+    button { width: 100%; padding: 10px; margin: 6px 0; border-radius: 8px; border: 1px solid #ccc; box-sizing: border-box; cursor: pointer; border: none; font-weight: bold; }
+    a { text-decoration: none; }
+
+    #reviews { list-style: none; padding: 0; }
+    #reviews li {
+      padding: 15px;
+      border-bottom: 1px solid #eee;
+      display: flex; 
+      justify-content: space-between; 
+      align-items: center; 
+      gap: 15px; 
+    }
+    #reviews li img {
+      width: 100px;
+      height: 75px;
+      object-fit: cover;
+      border-radius: 8px;
+      border: 1px solid #ddd;
+    }
+    #reviews li:last-child { border-bottom: none; }
+
+    .review-content { 
+      flex: 1; 
+    } 
+    .review-content b { color: #007bff; }
+    .review-content .username { color: #555; font-size: 14px; }
+    .review-content div { margin-top: 5px; }
+    .review-time { font-size: 12px; color: #888; white-space: nowrap; margin-left: 15px; }
+
+    .nav-button {
+      width: 100%;
+      background-color: #6c757d;
+      color: white;
+    }
+    .nav-button:hover { background-color: #5a6268; }
+  </style>
+</head>
+<body>
+  <h2>🍱 오늘의 후기</h2>
+
+  <ul id="reviews">
+    <li>후기를 불러오는 중...</li>
+  </ul>
+  
+  <button id="goto-main" class="nav-button" style="margin-top: 20px;">← 메인으로</button>
+
+  <script>
+    // HTML 특수문자 이스케이프
+    function escapeHtml(str) {
+      if (!str) return '';
+      return str.replace(/[&<>"']/g, function(m) {
+        const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+        return map[m];
+      });
+    }
+
+    // 메뉴 이미지 URL 생성 (없으면 기본 이미지)
+    function generateImgHtml(imageUrl, altText) {
+      if (!imageUrl) {
+        return `<img src="https://via.placeholder.com/100x75?text=Meal" alt="${escapeHtml(altText)}">`;
+      }
+      let url = imageUrl.trim();
+      if (!url) {
+        return `<img src="https://via.placeholder.com/100x75?text=Meal" alt="${escapeHtml(altText)}">`;
+      }
+      url = url.replace(/^\/+/, '');
+      url = url.replace(/^images\//, '');
+      return `<img src="/images/${url}" alt="${escapeHtml(altText)}">`;
+    }
+
+    // 오늘 메뉴 + 후기 로딩
+    async function loadTodayReviews(){
+      const ul = document.getElementById('reviews');
+      ul.innerHTML = '<li>메뉴와 리뷰를 불러오는 중...</li>';
+
+      try {
+        // 메뉴 목록 조회
+        const menuRes = await fetch('/api/menu/today/', { credentials:'include' });
+        if (menuRes.status === 401) {
+          ul.innerHTML = '<li>로그인을 해야 오늘의 후기를 볼 수 있습니다.</li>';
+          return;
+        }
+        if (!menuRes.ok) {
+          throw new Error('메뉴 API 호출 실패: ' + menuRes.status);
+        }
+        const menuList = await menuRes.json();
+
+        // 메뉴 제목 → 이미지 URL 매핑
+        const menuImageMap = new Map();
+        menuList.forEach(menu => {
+          menuImageMap.set(menu.title, menu.image_url);
+        });
+
+        // 오늘 후기 목록 조회
+        const reviewRes = await fetch('/api/review/today/', { credentials:'include' });
+        if (reviewRes.status === 401) {
+          ul.innerHTML = '<li>로그인을 해야 오늘의 후기를 볼 수 있습니다.</li>';
+          return;
+        }
+        if (!reviewRes.ok) {
+          throw new Error('리뷰 API 호출 실패: ' + reviewRes.status);
+        }
+        const reviewList = await reviewRes.json();
+        
+        if (!reviewList || reviewList.length === 0) {
+          ul.innerHTML = '<li>작성된 후기가 없습니다.</li>';
+          return;
+        }
+
+        // 후기 목록 렌더링
+        ul.innerHTML = '';
+        reviewList.forEach(r => {
+          const li = document.createElement('li');
+          const imageUrl = menuImageMap.get(r.menu_title);
+          const imgHtml = generateImgHtml(imageUrl, r.menu_title);
+
+          li.innerHTML = `
+            ${imgHtml} 
+            <div class="review-content">
+              <div><b>메뉴 이름 : ${escapeHtml(r.menu_title)}</b> <span class="username">(${escapeHtml(r.username)}님)</span></div>
+              <div>${escapeHtml(r.content)}</div>
+            </div>
+            <div class="review-time">${new Date(r.created_at).toLocaleString()}</div>
+          `;
+          ul.appendChild(li);
+        });
+      } catch (err) {
+        ul.innerHTML = '<li>후기를 불러오는 중 오류가 발생했습니다.</li>';
+        console.error('리뷰 로딩 실패:', err);
+      }
+    }
+
+    // 페이지 로드 시 실행
+    window.onload = loadTodayReviews;
+
+    // 메인으로 이동
+    document.getElementById('goto-main').onclick = () => {
+      location.href = '/';
+    };
+  </script>
+</body>
+</html>

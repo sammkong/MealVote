@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MealVote - 오늘의 학식 투표</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; max-width: 880px; margin: 24px auto; padding: 0 16px; }
+    header { display:flex; justify-content: space-between; align-items:center; }
+    .card { border:1px solid #ddd; border-radius:12px; padding:16px; margin:12px 0; }
+    .row { display:flex; gap:12px; align-items:center; }
+    .stat { font-size: 13px; color:#444; margin-left:8px; }
+
+    .login { margin:8px 0; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .login input { width:160px; padding:8px; border-radius:8px; border:1px solid #ccc; }
+
+    button { padding:6px 12px; border:1px solid #999; border-radius:8px; cursor:pointer; display:inline-flex; align-items:center; font-weight:500; background:#f6f6f6; }
+    button:hover { background:#eee; }
+
+    #login { background:#007bff; color:white; border-color:#007bff; }
+    #login:hover { background:#0069d9; }
+    #signup { background:#e9ecef; color:#333; border-color:#adb5bd; }
+    #signup:hover { background:#dee2e6; }
+
+    .menu-card { display:flex; gap:16px; align-items:flex-start; padding:12px 0; border-bottom:1px solid #eee; }
+    .menu-card img { width:120px; height:90px; object-fit:cover; border-radius:8px; border:1px solid #ddd; }
+    .vote-box { display:flex; align-items:center; gap:10px; margin-top:6px; }
+    .vote-box label { display:flex; align-items:center; gap:4px; cursor:pointer; }
+
+    .review-box { margin-top:8px; display:flex; gap:8px; }
+    .review-box textarea { flex:1; min-height:52px; padding:8px; border:1px solid #ccc; border-radius:8px; }
+
+    .review-link-box {
+      text-align: center;
+      margin: 20px 0;
+    }
+    .review-link-box button {
+      background-color: #6c757d;
+      color: white;
+      border: none;
+      padding: 12px 20px;
+      font-size: 16px;
+    }
+    .review-link-box button:hover {
+      background-color: #5a6268;
+    }
+
+    @media (max-width: 520px) {
+      .login { flex-direction:column; align-items:stretch; }
+      .login input, .login button { width:100%; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div> 
+      <h2>오늘의 학식 메뉴 투표하기</h2>
+      <p id="current-date" style="color: #555; margin-top: -10px; font-weight: 500;"></p>
+    </div>
+    <!-- 로그인/로그아웃 영역 -->
+    <div id="authbox"></div>
+  </header>
+  <hr/>
+
+  <section class="card">
+    <h3>오늘의 메뉴</h3>
+    <!-- 메뉴 + 투표 + 후기 UI가 들어가는 영역 -->
+    <ul id="menu-list"></ul>
+  </section>
+
+  <div class="review-link-box">
+    <button id="goto-reviews">오늘 후기 전체보기</button>
+  </div>
+
+  <script>
+    // 현재 로그인 사용자 상태 저장
+    const state = { me: null };
+
+    // 서버에 내 정보(/api/auth/me) 요청
+    async function me(){
+      const r = await fetch('/api/auth/me', { credentials:'include' });
+      state.me = r.ok ? await r.json() : null;
+      renderAuth();
+    }
+
+    // 상단 우측 로그인/로그아웃 UI 렌더링
+    function renderAuth(){
+      const box = document.getElementById('authbox');
+      if(state.me){
+        box.innerHTML = `<span>안녕하세요, <b>${state.me.username}</b>님</span> <button id="logout">로그아웃</button>`;
+        document.getElementById('logout').onclick = async ()=>{
+          await fetch('/api/auth/logout', { method:'POST', credentials:'include' });
+          state.me = null;
+          renderAuth();
+        };
+      } else {
+        box.innerHTML = `
+          <button id="goto-login" class="auth-button">로그인</button>
+          <button id="goto-signup" class="auth-button">회원가입</button>
+        `;
+        document.getElementById('goto-login').onclick = () => {
+          location.href = '/login';
+        };
+        document.getElementById('goto-signup').onclick = () => {
+          location.href = '/signup';
+        };
+      }
+    }
+
+    // 오늘의 메뉴 목록 + 투표/후기 UI 구성
+    async function fetchMenus(){
+      const ms = await fetch('/api/menu/today/', { credentials:'include' }).then(r=>r.json());
+      const ul = document.getElementById('menu-list');
+      ul.innerHTML = '';
+
+      ms.forEach(m => {
+        const li = document.createElement('li');
+        li.className = 'menu-card';
+
+        // 메뉴 이미지 경로 처리 (없으면 placeholder)
+        const imgHtml = (() => {
+          if (!m.image_url) {
+            return `<img src="https://via.placeholder.com/120x90?text=Meal" alt="${m.title}">`;
+          }
+          let url = m.image_url.trim();
+          url = url.replace(/^\/+/, '');
+          url = url.replace(/^images\//, '');
+          return `<img src="/images/${url}" alt="${m.title}">`;
+        })();
+
+        li.innerHTML = `
+          ${imgHtml}
+          <div style="flex:1">
+            <div class="row" style="justify-content:space-between">
+              <div style="font-weight:600">${m.title}</div>
+              <span id="s-${m.menu_id}" class="stat"></span>
+            </div>
+
+            <div class="vote-box">
+              <label><input type="radio" name="v-${m.menu_id}" value="LIKE"> 맛있어요</label>
+              <label><input type="radio" name="v-${m.menu_id}" value="DISLIKE"> 별로예요</label>
+              <button class="btn-vote" data-id="${m.menu_id}">투표</button>
+            </div>
+
+            <div class="review-box">
+              <textarea id="rv-${m.menu_id}" placeholder="먹어보니 어땠나요? (아쉬웠어요~ 등)"></textarea>
+              <button class="btn-review" data-id="${m.menu_id}">후기 등록</button>
+            </div>
+          </div>
+        `;
+
+        // 투표 버튼 클릭 시 처리
+        li.querySelector('.btn-vote').onclick = async (e)=>{
+          if(!state.me){ alert('로그인이 필요합니다'); return; }
+          const menuId = Number(e.currentTarget.dataset.id);
+          const picked = document.querySelector(`input[name="v-${menuId}"]:checked`);
+          if(!picked){ alert('투표 항목을 선택하세요'); return; }
+
+          const r = await fetch('/api/vote/', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            credentials:'include',
+            body: JSON.stringify({ menu_id: menuId, vote: picked.value })
+          });
+          if(r.status===201){
+            alert('투표 완료!');
+            refreshStats();
+          } else if(r.status===409){
+            alert('이미 투표했습니다.');
+            refreshStats();
+          } else if(r.status===401){
+            alert('로그인이 필요합니다.');
+          } else {
+            alert('오류');
+          }
+        };
+
+        // 후기 등록 버튼 클릭 시 처리
+        li.querySelector('.btn-review').onclick = async (e)=>{
+          if(!state.me){ alert('로그인이 필요합니다'); return; }
+          const menuId = Number(e.currentTarget.dataset.id);
+          const ta = document.getElementById(`rv-${menuId}`);
+          const content = (ta.value||'').trim();
+          if(!content){ alert('후기를 입력하세요'); return; }
+
+          const r = await fetch('/api/review/', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            credentials:'include',
+            body: JSON.stringify({ menu_id: menuId, content })
+          });
+          
+          if(r.status===201){
+            ta.value = '';
+            alert('후기가 등록되었습니다! "오늘 후기 전체보기"에서 확인하세요.');
+          } else if(r.status===401){
+            alert('로그인이 필요합니다.');
+          } else {
+            alert('등록 실패');
+          }
+        };
+
+        ul.appendChild(li);
+      });
+    }
+
+    // 메뉴별 투표 집계(좋아요/싫어요) 새로고침
+    async function refreshStats(){
+      const stats = await fetch('/api/stats/today/', { credentials:'include' }).then(r=>r.json());
+      stats.forEach(s=>{
+        const el = document.getElementById('s-'+s.menu_id);
+        if(el){ el.textContent = ` 👍 ${s.like} | 👎 ${s.dislike}`; }
+      });
+    }
+
+    // 오늘 후기 페이지로 이동
+    document.getElementById('goto-reviews').onclick = () => {
+      location.href = '/review';
+    };
+
+    // 상단에 오늘 날짜 출력
+    function renderCurrentDate() {
+      const options = {
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric', 
+        weekday: 'long' 
+      };
+      const dateString = new Date().toLocaleString('ko-KR', options);
+      
+      const el = document.getElementById('current-date');
+      if (el) {
+        el.textContent = dateString;
+      }
+    }
+
+    // 초기 로딩: 사용자 정보 → 메뉴 → 통계
+    me().then(() => fetchMenus().then(()=>{ refreshStats(); }));
+    renderCurrentDate();
+    // 통계는 주기적으로 새로고침
+    setInterval(refreshStats, 5000);
+  </script>
+</body>
+</html>
