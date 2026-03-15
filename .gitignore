@@ -1,0 +1,32 @@
+# environment
+.env
+.env.*
+
+# docker / local data
+npm-data/
+mysql-data/
+redis-data/
+
+# logs
+*.log
+*.gz
+logs/
+
+# backup files
+*.bak
+
+# node
+node_modules/
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# editor
+.vscode/
+.idea/
+
+# temporary
+tmp/
+temp/
